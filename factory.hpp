@@ -38,6 +38,7 @@ public:
         return instanceMap[name]->instance();
     }
 private:
+    Factory(){}
     Factory(const Factory&) = delete;
     const Factory& operator=(const Factory&) = delete;
 };

@@ -2,6 +2,7 @@
 #define SINGLETON_HPP
 
 #include <iostream>
+#include <memory>
 #include <mutex>
 
 template <typename T>
@@ -27,11 +28,11 @@ private:
     Singleton& operator = (const Singleton&) = delete;
 public:
     Singleton(){}
-    static T* instance()
+    static std::shared_ptr<T> instance()
     {
         std::lock_guard<std::mutex> guard(Singleton::mutex);
         if (ptr == nullptr) {
-            ptr = new T;
+            ptr.reset(new T);
         }
         return ptr;
     }
