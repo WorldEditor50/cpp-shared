@@ -3,6 +3,7 @@
 #include "observer.hpp"
 #include <string>
 #include <iostream>
+#include "logger.h"
 
 class Animal
 {
@@ -64,7 +65,7 @@ public:
     }
     void updtae() override
     {
-        std::cout<<name_<<std::endl;
+        std::cout<<"notify: "<<name_<<std::endl;
         return;
     }
 private:
@@ -97,15 +98,14 @@ int main(int argc, char *argv[])
     Factory<Animal>::instance().get("dragon")->speak();
     /* observer */
     Subject *subject = Singleton<Subject>::instance().get();
-    std::shared_ptr<ConcreteObserver> observer1;
-    std::shared_ptr<ConcreteObserver> observer2;
-    std::shared_ptr<ConcreteObserver> observer3;
-    observer1.reset(new ConcreteObserver(subject, "ob1"));
-    observer2.reset(new ConcreteObserver(subject, "ob2"));
-    observer3.reset(new ConcreteObserver(subject, "ob3"));
-    Singleton<Subject>::instance().get()->attach(observer1.get());
-    Singleton<Subject>::instance().get()->attach(observer2.get());
-    Singleton<Subject>::instance().get()->attach(observer3.get());
-    Singleton<Subject>::instance().get()->notify();
+    std::shared_ptr<ConcreteObserver> observer1 = std::make_shared<ConcreteObserver>(subject, "ob1");
+    std::shared_ptr<ConcreteObserver> observer2 = std::make_shared<ConcreteObserver>(subject, "ob2");
+    std::shared_ptr<ConcreteObserver> observer3 = std::make_shared<ConcreteObserver>(subject, "ob3");
+    Singleton<Subject>::instance()->attach(observer1.get());
+    Singleton<Subject>::instance()->attach(observer2.get());
+    Singleton<Subject>::instance()->attach(observer3.get());
+    Singleton<Subject>::instance()->notify();
+    /* log */
+    LOG(Log::INFO, "hello");
     return 0;
 }

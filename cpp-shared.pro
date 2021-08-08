@@ -23,7 +23,8 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
 
 HEADERS += \
-    TcpPipe.hpp \
     factory.hpp \
+    logger.h \
     observer.hpp \
-    singleton.hpp
+    singleton.hpp \
+    tcppipe.hpp

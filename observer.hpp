@@ -16,6 +16,7 @@ class Subject
 private:
     std::vector<Observer*> observerList;
 public:
+    Subject() = default;
     void attach(Observer* observer)
     {
         if (observer != nullptr) {
