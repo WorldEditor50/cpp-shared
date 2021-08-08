@@ -38,7 +38,7 @@ public:
     virtual int bindTo(const std::string &host, int port) = 0;
     virtual int connectTo(const std::string &host, int port) = 0;
     virtual int listening(int maxPortCount) = 0;
-    virtual int sendMessage(const std::string &content) = 0;
+    virtual bool sendMessage(const std::string &content) = 0;
     virtual std::string recvMessage() = 0;
     virtual std::shared_ptr<Socket> acceptSocket() = 0;
     virtual void clear() = 0;
@@ -93,10 +93,10 @@ public:
     {
         return listen(fd, maxPortCount);
     }
-    int sendMessage(const std::string &content) override
+    bool sendMessage(const std::string &content) override
     {
         if (content.size() < maxBufferLen) {
-            return send(fd, content.c_str(), content.size(), 0);
+            return send(fd, content.c_str(), content.size(), 0) == content.size();
         }
         const char *data = content.data();
         std::string::size_type total = content.size();
@@ -115,7 +115,7 @@ public:
         char buffer[maxBufferLen] = {0};
         ssize_t len = recv(fd, buffer, maxBufferLen, 0);
         if (len < 0) {
-
+            return std::string();
         }
         return std::string(buffer, len);
     }
@@ -193,11 +193,12 @@ private:
     void accept()
     {
         while (isRunning.load()) {
-            SocketPtr newSocket = socket.accept();
+            SocketPtr newSocket = socket.acceptSocket();
             if (newSocket != nullptr) {
                 socketMap.insert(std::make_pair<std::string, SocketPtr>(newSocket.getAddress(), newSocket));
             }
         }
+        return;
     }
     void recv()
     {
@@ -209,6 +210,7 @@ private:
                 }
             }
         }
+        return;
     }
 };
 

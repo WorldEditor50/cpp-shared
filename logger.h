@@ -6,6 +6,7 @@
 #include <vector>
 #include <ctime>
 #include <chrono>
+#include <iostream>
 
 template <int N>
 class LogWriter
@@ -27,18 +28,9 @@ private:
     static std::mutex mutex;
     static const std::vector<std::string> levelString;
 public:
-    LogWriter()=default;
-    static void write(int level, int lineNo, const std::string &fileName, const std::string &function, const std::string &info)
+    LogWriter() = default;
+    static std::string merge(int level, int lineNo, const std::string &fileName, const std::string &function, const std::string &info)
     {
-        if (on == false) {
-            return;
-        }
-        std::lock_guard<std::mutex> lockguard(mutex);
-        std::ofstream file(logFileName, std::ios_base::in | std::ios_base::app);
-        if (file.is_open() == false) {
-            return;
-        }
-
         std::string content;
         auto now = std::chrono::system_clock::now();
         uint64_t dis_millseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count()
@@ -61,8 +53,28 @@ public:
         content += std::string("[LINE:") + std::to_string(lineNo) + std::string("]");
         content += std::string("[FUNC:") + function + std::string("]");
         content += std::string("[MESSAGE:") + info + std::string("]");
+        return content;
+    }
+    static void write(int level, int lineNo, const std::string &fileName, const std::string &function, const std::string &info)
+    {
+        if (on == false) {
+            return;
+        }
+        std::lock_guard<std::mutex> lockguard(mutex);
+        std::ofstream file(logFileName, std::ios_base::in | std::ios_base::app);
+        if (file.is_open() == false) {
+            return;
+        }
+
+        std::string content = merge(level, lineNo, fileName, function, info);
         file.write(content.c_str(), content.size());
         file.close();
+        return;
+    }
+
+    void show(int level, int lineNo, const std::string &fileName, const std::string &function, const std::string &info)
+    {
+        std::cout<<merge(level, lineNo, fileName, function, info)<<std::endl;
         return;
     }
 
@@ -88,6 +100,7 @@ using Log = LogWriter<0>;
 
 #if 1
     #define LOG(level, message) Log::write(level, __LINE__, __FILE__, __FUNCTION__, message)
+    #define LOG_SHOW(level, message) Log::show(level, __LINE__, __FILE__, __FUNCTION__, message)
 #else
     #define LOG
 #endif
