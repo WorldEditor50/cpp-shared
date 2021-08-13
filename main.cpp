@@ -3,7 +3,9 @@
 #include "observer.hpp"
 #include <string>
 #include <iostream>
-#include "logger.h"
+#include <cstring>
+#include "logger.hpp"
+#include "realloctor.hpp"
 
 class Animal
 {
@@ -80,6 +82,17 @@ public:
 private:
     std::string name;
 };
+template <typename T>
+inline void append(T t, std::string &dst) { dst += std::to_string(t);}
+inline void append(const std::string& t, std::string &dst){ dst += t;}
+inline void append(const char* t, std::string &dst) { dst += t;}
+template <typename ...T>
+inline std::string append(const T& ...t)
+{
+    std::string dst;
+    int argv[] = {(append(t, dst), 0)...};
+    return dst;
+}
 
 int main(int argc, char *argv[])
 {
@@ -107,5 +120,20 @@ int main(int argc, char *argv[])
     Singleton<Subject>::instance()->notify();
     /* log */
     LOG(Log::INFO, "hello");
+    /* string append */
+    std::string result;
+    result = append(123, "hello", 256, "great");
+    std::cout<<result<<std::endl;
+    std::cout<<(0, 9)<<std::endl;
+    /* allocator */
+    char* ptr = Reallocator<char>::get(32);
+    strcpy(ptr, "i am invetiable.");
+    std::cout<<ptr<<std::endl;
+    Reallocator<char>::recycle(32, ptr);
+    ptr == nullptr?(std::cout<<"ptr == nullptr"<<std::endl, 0):0;
+    char* ptr1 = Reallocator<char>::get(32);
+    strcpy(ptr1, "hello");
+    std::cout<<ptr1<<std::endl;
+    Reallocator<char>::recycle(32, ptr1);
     return 0;
 }

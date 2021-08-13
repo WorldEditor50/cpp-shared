@@ -1,5 +1,5 @@
-#ifndef LOGGER_H
-#define LOGGER_H
+#ifndef LOGGER_HPP
+#define LOGGER_HPP
 #include <fstream>
 #include <mutex>
 #include <string>
@@ -104,4 +104,4 @@ using Log = LogWriter<0>;
 #else
     #define LOG
 #endif
-#endif // LOGGER_H
+#endif // LOGGER_HPP

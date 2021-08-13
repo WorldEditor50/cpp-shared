@@ -24,7 +24,8 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 
 HEADERS += \
     factory.hpp \
-    logger.h \
+    logger.hpp \
     observer.hpp \
+    realloctor.hpp \
     singleton.hpp \
     tcppipe.hpp
