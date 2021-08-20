@@ -23,9 +23,10 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
 
 HEADERS += \
+    LazyAlloctor.hpp \
+    allocator.hpp \
     factory.hpp \
     logger.hpp \
     observer.hpp \
-    realloctor.hpp \
     singleton.hpp \
     tcppipe.hpp

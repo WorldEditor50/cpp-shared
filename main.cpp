@@ -5,7 +5,7 @@
 #include <iostream>
 #include <cstring>
 #include "logger.hpp"
-#include "realloctor.hpp"
+#include "LazyAlloctor.hpp"
 
 class Animal
 {
@@ -126,14 +126,19 @@ int main(int argc, char *argv[])
     std::cout<<result<<std::endl;
     std::cout<<(0, 9)<<std::endl;
     /* allocator */
-    char* ptr = Reallocator<char>::get(32);
-    strcpy(ptr, "i am invetiable.");
-    std::cout<<ptr<<std::endl;
-    Reallocator<char>::recycle(32, ptr);
-    ptr == nullptr?(std::cout<<"ptr == nullptr"<<std::endl, 0):0;
-    char* ptr1 = Reallocator<char>::get(32);
-    strcpy(ptr1, "hello");
+    LazyAllocator<char> alloc;
+    char* ptr1 = alloc.get(32);
+    strcpy(ptr1, "i am invetiable.");
     std::cout<<ptr1<<std::endl;
-    Reallocator<char>::recycle(32, ptr1);
+    char* ptr2 = alloc.get(16);
+    strcpy(ptr2, "hello");
+    std::cout<<ptr2<<std::endl;
+    /* size */
+    std::size_t size_ = 1025;
+    if (size_ & 0x3ff)
+    {
+        size_ = ((size_ >> 10) + 1) << 10;
+    }
+    std::cout<<"size: "<<size_<<std::endl;
     return 0;
 }
