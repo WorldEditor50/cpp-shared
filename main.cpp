@@ -6,6 +6,7 @@
 #include <cstring>
 #include "logger.hpp"
 #include "LazyAlloctor.hpp"
+#include "tcppipe.hpp"
 
 class Animal
 {
@@ -135,10 +136,12 @@ int main(int argc, char *argv[])
     std::cout<<ptr2<<std::endl;
     /* size */
     std::size_t size_ = 1025;
-    if (size_ & 0x3ff)
-    {
+    if (size_ & 0x3ff) {
         size_ = ((size_ >> 10) + 1) << 10;
     }
     std::cout<<"size: "<<size_<<std::endl;
+    /* tcp-pipe */
+    TcpPipe<UnixSocket> tcppipe;
+    tcppipe.sever("127.0.0.1", 8081).asyncRun();
     return 0;
 }
