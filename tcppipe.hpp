@@ -7,6 +7,7 @@
 #include <atomic>
 #include <memory>
 #include <iostream>
+#include <regex>
 #ifdef WIN32
 #include <windows.h>
 #else
@@ -30,6 +31,7 @@ enum Error {
 class UnixSocket //: public Socket
 {
 public:
+    using SocketPtr = std::shared_ptr<UnixSocket>;
     constexpr static int maxBufferLen = 65532;
     int fd;
     int port_;
@@ -47,7 +49,7 @@ public:
     {
         return host_ + ":" + std::to_string(port_);
     }
-    int tcpSocket()
+    int tcp()
     {
         fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (fd < 0) {
@@ -56,7 +58,7 @@ public:
         }
         return OK;
     }
-    int udpSocket()
+    int udp()
     {
         fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (fd < 0) {
@@ -66,7 +68,7 @@ public:
         return OK;
     }
 
-    int icmpSocket()
+    int icmp()
     {
         fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
         if (fd < 0) {
@@ -85,8 +87,9 @@ public:
         return bind(fd, (sockaddr*)&addr, sizeof(sockaddr_in));
     }
 
-    int setIOReused(int opt)
+    int setIOReused(bool on)
     {
+        int opt = on == true ? 1 : 0;
         return setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     }
 
@@ -142,7 +145,7 @@ public:
         return std::string(buffer, len);
     }
 
-    std::shared_ptr<UnixSocket> acceptSocket()
+    std::shared_ptr<UnixSocket> accepting()
     {
         sockaddr_in addr;
         socklen_t len = sizeof(sockaddr_in);
@@ -174,12 +177,50 @@ public:
 class WinSocket
 {
 public:
-
+    using SocketPtr = std::shared_ptr<WinSocket>;
+};
+class Protocol
+{
+public:
+    static std::map<std::string, std::string> parse(const std::string &message)
+    {
+        std::map<std::string, std::string> data;
+        std::regex re(",");
+        std::vector<std::string> dataVec(std::sregex_token_iterator(message.begin(),
+                                                                    message.end(),
+                                                                    re,
+                                                                    -1),
+                                         std::sregex_token_iterator());
+        int start = dataVec[0].find("service:");
+        data["service"] = dataVec[0].substr(start);
+        start = dataVec[1].find("from:");
+        data["from"] = dataVec[1].substr(start);
+        start = dataVec[2].find("to:");
+        data["to"] = dataVec[2].substr(start);
+        start = dataVec[2].find("content:");
+        data["content"] = dataVec[2].substr(start);
+        return data;
+    }
+    template<typename ...T>
+    static std::string append(const T& ...t)
+    {
+        std::string message;
+        return message;
+    }
+    static std::string build(const std::vector<std::string> &data)
+    {
+        std::string message;
+        message += "service:" + data[0] + ",";
+        message += "from:" + data[1] + ",";
+        message += "to:" + data[2] + ",";
+        message += "content:" + data[3];
+        return message;
+    }
 };
 
 #define MAX_EVENT_NUM 2048
-template <typename TSocket>
-class TcpPipe
+template <typename TSocket, typename TProtocol = Protocol>
+class TcpServer
 {
 public:
     enum IOType {
@@ -187,7 +228,7 @@ public:
         MODEL_EPOLL
     };
     using StringVec = std::vector<std::string>;
-    using SocketPtr = std::shared_ptr<TSocket>;
+    using SocketPtr = typename TSocket::SocketPtr;
 private:
     IOType ioType;
     int epfd;
@@ -196,26 +237,31 @@ private:
     std::string address_;
     std::atomic_bool isRunning;
     std::thread recvThread;
+    std::thread ioThread;
     std::map<std::string, StringVec> mailBox;
     std::map<std::string, SocketPtr> socketMap;
     std::map<int, SocketPtr> fd2Socket;
 public:
-    TcpPipe(){}
-    ~TcpPipe()
+    TcpServer(){}
+    ~TcpServer()
     {
         isRunning.store(false);
         if (ioType == MODEL_SELECT) {
             recvThread.join();
+            ioThread.join();
         }
         for (auto it = socketMap.begin(); it != socketMap.end(); it++) {
              it->second->destroy();
         }
     }
 
-    TcpPipe& sever(const std::string &host, int port)
+    TcpServer& start(const std::string &host, int port)
     {
+        if (isRunning.load()) {
+            return *this;
+        }
         /* create socket */
-        int fd = socket.tcpSocket();
+        int fd = socket.tcp();
         if (fd < 0) {
             std::runtime_error("fail to create socket");
             return *this;
@@ -238,40 +284,8 @@ public:
         return *this;
     }
 
-    TcpPipe& client(const std::string& host, int port)
+    void waitConnection()
     {
-        /* create socket */
-        int fd = socket.tcpSocket();
-        if (fd < 0) {
-            return *this;
-        }
-        /* connect */
-        int ret = socket.connectTo(host, port);
-        if (ret != 0) {
-            socket.destroy();
-        }
-        return *this;
-    }
-
-    void post(const std::string &address, const std::string &content)
-    {
-        if (socketMap.find(address) == socketMap.end()) {
-            return;
-        }
-        socketMap[address]->sendMessage(content);
-        return;
-    }
-
-    StringVec get(const std::string &address)
-    {
-        return mailBox[address];
-    }
-
-    void syncRun()
-    {
-        ioType = MODEL_SELECT;
-        isRunning.store(true);
-        recvThread = std::thread(&TcpPipe::syncReceive, this);
         while (isRunning.load()) {
             fd_set fdSet;
             FD_ZERO(&fdSet);
@@ -285,7 +299,7 @@ public:
                 std::runtime_error("select:zero count.");
                 continue;
             }
-            SocketPtr newSocket = socket.acceptSocket();
+            SocketPtr newSocket = socket.accepting();
             if (newSocket != nullptr) {
                 if (socketMap.size() > FD_SETSIZE) {
                     newSocket->destroy();
@@ -298,8 +312,20 @@ public:
             }
         }
         std::cout<<"accept leave"<<std::endl;
+    }
+
+    void syncRun()
+    {
+        if (isRunning.load()) {
+            return;
+        }
+        ioType = MODEL_SELECT;
+        isRunning.store(true);
+        recvThread = std::thread(&TcpServer::syncReceive, this);
+        ioThread = std::thread(&TcpServer::waitConnection, this);
         return;
     }
+
     void syncReceive()
     {
         while (isRunning.load()) {
@@ -334,6 +360,9 @@ public:
 
     void asyncRun()
     {
+        if (isRunning.load()) {
+            return;
+        }
         ioType = MODEL_EPOLL;
         isRunning.store(true);
         std::cout<<"epoll_create"<<std::endl;
@@ -371,7 +400,7 @@ public:
                 }
                 if (eventList[i].data.fd == socket.fd) {
                     /* accept */
-                    SocketPtr newSocket = socket.acceptSocket();
+                    SocketPtr newSocket = socket.accepting();
                     if (newSocket == nullptr) {
                         continue;
                     }
@@ -416,4 +445,93 @@ public:
     }
 };
 
+template<typename TSocket, typename TProtocol = Protocol>
+class TcpClient
+{
+public:
+    using StringVec = std::vector<std::string>;
+public:
+    TSocket socket;
+    std::atomic_bool isRunning;
+    std::thread recvThread;
+    std::map<std::string, StringVec> mailBox;
+public:
+    TcpClient(){}
+    ~TcpClient()
+    {
+        isRunning.store(false);
+        recvThread.join();
+    }
+
+    TcpClient& connectHost(const std::string &host, int port)
+    {
+        /* create socket */
+        int fd = socket.tcp();
+        if (fd < 0) {
+            return *this;
+        }
+        /* connect */
+        int ret = socket.connectTo(host, port);
+        if (ret != 0) {
+            socket.destroy();
+            return *this;
+        }
+        isRunning.store(true);
+        std::cout<<"client start"<<std::endl;
+        recvThread = std::thread(&TcpClient::receive, this);
+        return *this;
+    }
+
+    void send(const std::string &destination, const std::string &data)
+    {
+        std::string msg = TProtocol::build(std::vector<std::string>{"forward",
+                                           socket.getAddress(),
+                                           destination,
+                                           data});
+        socket.sendMessage(msg);
+    }
+
+    void send(const std::string &data)
+    {
+        socket.sendMessage(data);
+    }
+
+    void receive()
+    {
+        std::cout<<"client enter"<<std::endl;
+        while (isRunning.load()) {
+            std::string content = socket.recvMessage();
+            if (content.empty() == false) {
+                std::cout<<"message:"<<content<<std::endl;
+            }
+        }
+        std::cout<<"client leave"<<std::endl;
+        return;
+    }
+};
+
+template <typename TSocket>
+class TcpPipe
+{
+public:
+    static std::string host;
+    static int port;
+    static TcpServer<TSocket> server;
+    class Client : protected TcpClient<TSocket>
+    {
+    public:
+        Client()
+        {
+            server.start(host, port).syncRun();
+            TcpClient<TSocket>::connectHost(host, port);
+        }
+        void push(const std::string &message) {TcpClient<TSocket>::send(message);}
+    };
+};
+template<typename TSocket>
+std::string TcpPipe<TSocket>::host = "127.0.0.1";
+template<typename TSocket>
+int TcpPipe<TSocket>::port = 8081;
+template<typename TSocket>
+TcpServer<TSocket> TcpPipe<TSocket>::server;
 #endif // TCPPIPE_HPP

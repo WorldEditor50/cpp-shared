@@ -141,7 +141,7 @@ int main(int argc, char *argv[])
     }
     std::cout<<"size: "<<size_<<std::endl;
     /* tcp-pipe */
-    TcpPipe<UnixSocket> tcppipe;
-    tcppipe.sever("127.0.0.1", 8081).asyncRun();
+    TcpPipe<UnixSocket>::Client pipe;
+    pipe.push("hello");
     return 0;
 }
