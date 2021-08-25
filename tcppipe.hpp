@@ -219,43 +219,24 @@ public:
 };
 
 #define MAX_EVENT_NUM 2048
-template <typename TSocket, typename TProtocol = Protocol>
-class TcpServer
+template<typename TSocket>
+class AbstractServer
 {
 public:
-    enum IOType {
-        MODEL_SELECT = 0,
-        MODEL_EPOLL
-    };
-    using StringVec = std::vector<std::string>;
     using SocketPtr = typename TSocket::SocketPtr;
-private:
-    IOType ioType;
-    int epfd;
-    epoll_event eventList[MAX_EVENT_NUM];
     TSocket socket;
-    std::string address_;
     std::atomic_bool isRunning;
-    std::thread recvThread;
-    std::thread ioThread;
-    std::map<std::string, StringVec> mailBox;
     std::map<std::string, SocketPtr> socketMap;
-    std::map<int, SocketPtr> fd2Socket;
 public:
-    TcpServer(){}
-    ~TcpServer()
+    AbstractServer():isRunning(false){}
+    ~AbstractServer()
     {
-        isRunning.store(false);
-        if (ioType == MODEL_SELECT) {
-            recvThread.join();
-            ioThread.join();
-        }
+        socket.destroy();
         for (auto it = socketMap.begin(); it != socketMap.end(); it++) {
              it->second->destroy();
         }
     }
-
-    TcpServer& start(const std::string &host, int port)
+    AbstractServer& start(const std::string &host, int port)
     {
         if (isRunning.load()) {
             return *this;
@@ -283,14 +264,34 @@ public:
         }
         return *this;
     }
+};
 
-    void waitConnection()
+template<typename TSocket>
+class Select : public AbstractServer<TSocket>
+{
+public:
+    using SocketPtr = typename TSocket::SocketPtr;
+    using Server = AbstractServer<TSocket>;
+    std::thread recvThread;
+public:
+    Select(){}
+    ~Select()
     {
-        while (isRunning.load()) {
+        Server::isRunning.store(false);
+        recvThread.join();
+    }
+    void run()
+    {
+        if (Server::isRunning.load()) {
+            return;
+        }
+        Server::isRunning.store(true);
+        recvThread = std::thread(&Select::receive, this);
+        while (Server::isRunning.load()) {
             fd_set fdSet;
             FD_ZERO(&fdSet);
-            FD_SET(socket.fd, &fdSet);
-            int fdCount = select(socket.fd + 1, &fdSet, nullptr, nullptr, nullptr);
+            FD_SET(Server::socket.fd, &fdSet);
+            int fdCount = select(Server::socket.fd + 1, &fdSet, nullptr, nullptr, nullptr);
             if (fdCount < 0) {
                 std::runtime_error("select failed. fd count < 0");
                 return;
@@ -299,37 +300,25 @@ public:
                 std::runtime_error("select:zero count.");
                 continue;
             }
-            SocketPtr newSocket = socket.accepting();
+            auto newSocket = Server::socket.accepting();
             if (newSocket != nullptr) {
-                if (socketMap.size() > FD_SETSIZE) {
+                if (Server::socketMap.size() > FD_SETSIZE) {
                     newSocket->destroy();
                     std::runtime_error("select full.");
                     return;
                 }
                 std::cout<<"new connection:"<<newSocket->getAddress()<<std::endl;
                 newSocket->setNonBlock(true);
-                socketMap.insert(std::pair<std::string, SocketPtr>(newSocket->getAddress(), newSocket));
+                Server::socketMap.insert(std::pair<std::string, SocketPtr>(newSocket->getAddress(), newSocket));
             }
         }
         std::cout<<"accept leave"<<std::endl;
     }
 
-    void syncRun()
+    void receive()
     {
-        if (isRunning.load()) {
-            return;
-        }
-        ioType = MODEL_SELECT;
-        isRunning.store(true);
-        recvThread = std::thread(&TcpServer::syncReceive, this);
-        ioThread = std::thread(&TcpServer::waitConnection, this);
-        return;
-    }
-
-    void syncReceive()
-    {
-        while (isRunning.load()) {
-            for (auto it = socketMap.begin(); it != socketMap.end(); it++) {
+        while (Server::isRunning.load()) {
+            for (auto it = Server::socketMap.begin(); it != Server::socketMap.end(); it++) {
                 fd_set fdSet;
                 FD_ZERO(&fdSet);
                 FD_SET(it->second->fd, &fdSet);
@@ -357,14 +346,26 @@ public:
         }
         return;
     }
+};
 
-    void asyncRun()
+template<typename TSocket>
+class Epoll : public AbstractServer<TSocket>
+{
+public:
+    using SocketPtr = typename TSocket::SocketPtr;
+    using Server = AbstractServer<TSocket>;
+    int epfd;
+    std::map<int, SocketPtr> fd2Socket;
+    epoll_event eventList[MAX_EVENT_NUM];
+public:
+    Epoll(){}
+    ~Epoll(){}
+    void run()
     {
-        if (isRunning.load()) {
+        if (Server::isRunning.load()) {
             return;
         }
-        ioType = MODEL_EPOLL;
-        isRunning.store(true);
+        Server::isRunning.store(true);
         std::cout<<"epoll_create"<<std::endl;
         /* create */
         epfd = epoll_create1(0);
@@ -375,15 +376,15 @@ public:
         std::cout<<"epoll_ctl"<<std::endl;
         /* add sever fd to epoll */
         struct epoll_event ev;
-        ev.data.fd = socket.fd;
+        ev.data.fd = Server::socket.fd;
         ev.events = EPOLLIN;
-        int ret = epoll_ctl(epfd, EPOLL_CTL_ADD, socket.fd, &ev);
+        int ret = epoll_ctl(epfd, EPOLL_CTL_ADD, Server::socket.fd, &ev);
         if (ret < 0) {
             close(epfd);
             std::runtime_error("epoll_ctl failed.");
             return;
         }
-        while (isRunning.load()) {
+        while (Server::isRunning.load()) {
             std::cout<<"epoll wait"<<std::endl;
             int fdCount = epoll_wait(epfd, eventList, MAX_EVENT_NUM, -1);
             if (fdCount < 0) {
@@ -398,15 +399,15 @@ public:
                 if (eventList[i].events != EPOLLIN) {
                     continue;
                 }
-                if (eventList[i].data.fd == socket.fd) {
+                if (eventList[i].data.fd == Server::socket.fd) {
                     /* accept */
-                    SocketPtr newSocket = socket.accepting();
+                    SocketPtr newSocket = Server::socket.accepting();
                     if (newSocket == nullptr) {
                         continue;
                     }
                     std::cout<<"new connection:"<<newSocket->getAddress()<<std::endl;
                     newSocket->setNonBlock(false);
-                    socketMap.insert(std::pair<std::string, SocketPtr>(newSocket->getAddress(), newSocket));
+                    Server::socketMap.insert(std::pair<std::string, SocketPtr>(newSocket->getAddress(), newSocket));
                     fd2Socket.insert(std::pair<int, SocketPtr>(newSocket->fd, newSocket));
                     /* add client fd to epoll */
                     struct epoll_event ev;
@@ -434,7 +435,7 @@ public:
             std::cout<<"message:"<<content<<std::endl;
         } else {
             struct epoll_event ev;
-            ev.data.fd = socket.fd;
+            ev.data.fd = Server::socket.fd;
             ev.events = EPOLLIN;
             epoll_ctl(epfd, EPOLL_CTL_DEL, fd, &ev);
             fd2Socket[fd]->destroy();
@@ -442,6 +443,32 @@ public:
             fd2Socket.erase(it);
         }
         /* routing */
+    }
+};
+
+template <typename TSocket, template<typename> class IO, typename TProtocol = Protocol>
+class TcpServer : public IO<TSocket>
+{
+public:
+    using StringVec = std::vector<std::string>;
+    std::thread ioThread;
+public:
+    TcpServer(){}
+    ~TcpServer()
+    {
+        ioThread.join();
+    }
+    TcpServer& start(const std::string &host, int port)
+    {
+        IO<TSocket>::Server::start(host, port);
+        return *this;
+    }
+    void run()
+    {
+        if (IO<TSocket>::Server::isRunning.load()) {
+            return;
+        }
+        ioThread = std::thread(&IO<TSocket>::run, this);
     }
 };
 
@@ -511,27 +538,23 @@ public:
 };
 
 template <typename TSocket>
-class TcpPipe
+class TcpPipe : protected TcpClient<TSocket>
 {
 public:
     static std::string host;
     static int port;
-    static TcpServer<TSocket> server;
-    class Client : protected TcpClient<TSocket>
+    static TcpServer<TSocket, Epoll> server;
+    TcpPipe()
     {
-    public:
-        Client()
-        {
-            server.start(host, port).syncRun();
-            TcpClient<TSocket>::connectHost(host, port);
-        }
-        void push(const std::string &message) {TcpClient<TSocket>::send(message);}
-    };
+        server.start(host, port).run();
+        TcpClient<TSocket>::connectHost(host, port);
+    }
+    void push(const std::string &message) {TcpClient<TSocket>::send(message);}
 };
 template<typename TSocket>
 std::string TcpPipe<TSocket>::host = "127.0.0.1";
 template<typename TSocket>
 int TcpPipe<TSocket>::port = 8081;
 template<typename TSocket>
-TcpServer<TSocket> TcpPipe<TSocket>::server;
+TcpServer<TSocket, Epoll> TcpPipe<TSocket>::server;
 #endif // TCPPIPE_HPP

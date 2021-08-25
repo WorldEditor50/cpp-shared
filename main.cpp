@@ -141,7 +141,9 @@ int main(int argc, char *argv[])
     }
     std::cout<<"size: "<<size_<<std::endl;
     /* tcp-pipe */
-    TcpPipe<UnixSocket>::Client pipe;
-    pipe.push("hello");
+    TcpPipe<UnixSocket> pipe1;
+    pipe1.push("hello");
+    TcpPipe<UnixSocket> pipe2;
+    pipe2.push("i am inevitable.");
     return 0;
 }

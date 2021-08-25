@@ -14,12 +14,13 @@ private:
     Singleton& operator = (const Singleton&) = delete;
 public:
     Singleton(){}
-    static std::shared_ptr<T> instance()
+    template<typename ...TArgs>
+    static std::shared_ptr<T> instance(TArgs&& ...args)
     {
         if (ptr == nullptr) {
             std::lock_guard<std::mutex> guard(Singleton::mutex);
             if (ptr == nullptr) {
-                ptr = std::make_shared<T>();
+                ptr = std::make_shared<T>(args...);
             }
         }
         return ptr;
