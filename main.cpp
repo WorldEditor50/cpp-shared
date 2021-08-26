@@ -7,6 +7,7 @@
 #include "logger.hpp"
 #include "LazyAlloctor.hpp"
 #include "tcppipe.hpp"
+#include "LazyFSM.h"
 
 class Animal
 {
@@ -140,6 +141,8 @@ int main(int argc, char *argv[])
         size_ = ((size_ >> 10) + 1) << 10;
     }
     std::cout<<"size: "<<size_<<std::endl;
+    /* fsm */
+    LazyFSM fsm;
     /* tcp-pipe */
     TcpPipe<UnixSocket> pipe1;
     pipe1.push("hello");
