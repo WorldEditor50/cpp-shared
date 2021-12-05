@@ -7,7 +7,8 @@
 #include "logger.hpp"
 #include "LazyAlloctor.hpp"
 #include "tcppipe.hpp"
-#include "LazyFSM.h"
+#include "LazyFsm.h"
+#include "interface.hpp"
 
 class Animal
 {
@@ -96,6 +97,26 @@ inline std::string append(const T& ...t)
     return dst;
 }
 
+int add(int x, int y, int z)
+{
+    std::cout<<x + y + z<<std::endl;
+    return x + y + z;
+}
+void show(const std::string &text)
+{
+    std::cout<<text<<std::endl;
+}
+class A
+{
+public:
+    void show(const std::string &text)
+    {
+        std::cout<<"A:"<<text<<std::endl;
+    }
+};
+
+
+
 int main(int argc, char *argv[])
 {
     /* singleton */
@@ -141,12 +162,21 @@ int main(int argc, char *argv[])
         size_ = ((size_ >> 10) + 1) << 10;
     }
     std::cout<<"size: "<<size_<<std::endl;
-    /* fsm */
-    LazyFSM fsm;
-    /* tcp-pipe */
-    TcpPipe<UnixSocket> pipe1;
-    pipe1.push("hello");
-    TcpPipe<UnixSocket> pipe2;
-    pipe2.push("i am inevitable.");
+    /* invoke */
+    Interfaces interfaces;
+    interfaces.registerMethod("A-Show", std::function<void(A, const std::string&)>(&A::show));
+    interfaces.registerMethod("show", std::function<void(const std::string&)>(show));
+    interfaces.registerMethod("add", std::function<int(int, int, int)>(add));
+    interfaces.invoke<void, const std::string&>("show", "listening talker makes me thirsty.");
+    interfaces.invoke<int, int, int, int>("add", 1, 2, 3);
+    interfaces.invoke<void, const std::string&>("A-Show", "i am batman.");
+    return 0;
+//    /* fsm */
+//    LazyFSM fsm;
+//    /* tcp-pipe */
+//    TcpPipe<UnixSocket> pipe1;
+//    pipe1.push("hello");
+//    TcpPipe<UnixSocket> pipe2;
+//    pipe2.push("i am inevitable.");
     return 0;
 }

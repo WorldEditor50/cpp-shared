@@ -24,9 +24,11 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 
 HEADERS += \
     LazyAlloctor.hpp \
-    LazyFSM.h \
+    LazyFsm.h \
+    LazyString.hpp \
     allocator.hpp \
     factory.hpp \
+    interface.hpp \
     logger.hpp \
     observer.hpp \
     singleton.hpp \

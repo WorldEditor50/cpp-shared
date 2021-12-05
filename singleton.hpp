@@ -7,7 +7,7 @@
 template <typename T>
 class Singleton
 {
-private:
+protected:
     static std::shared_ptr<T> ptr;
     static std::mutex mutex;
     Singleton(const Singleton&) = delete;

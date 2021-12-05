@@ -52,7 +52,7 @@ public:
         content += std::string("[FILE:") + fileName + std::string("]");
         content += std::string("[LINE:") + std::to_string(lineNo) + std::string("]");
         content += std::string("[FUNC:") + function + std::string("]");
-        content += std::string("[MESSAGE:") + info + std::string("]");
+        content += std::string("[MESSAGE:") + info + std::string("]\n");
         return content;
     }
     static void write(int level, int lineNo, const std::string &fileName, const std::string &function, const std::string &info)
@@ -72,7 +72,7 @@ public:
         return;
     }
 
-    void show(int level, int lineNo, const std::string &fileName, const std::string &function, const std::string &info)
+    void show(int level, int lineNo, const std::string &fileName, const std::string &function, const std::string &info) const
     {
         std::cout<<merge(level, lineNo, fileName, function, info)<<std::endl;
         return;
