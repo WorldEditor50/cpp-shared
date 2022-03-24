@@ -31,5 +31,6 @@ HEADERS += \
     interface.hpp \
     logger.hpp \
     observer.hpp \
+    pluginloader.h \
     singleton.hpp \
     tcppipe.hpp
