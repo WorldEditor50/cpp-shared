@@ -4,84 +4,78 @@
 #include <map>
 #include <vector>
 #include <mutex>
+#include <condition_variable>
 
-template <typename T>
+template<typename T>
 class LazyAllocator
 {
-private:
-    class LazyAllocatorImpl
-    {
-    public:
-        std::map<std::size_t, std::vector<T*> > storage;
-        std::mutex mutex_;
-        LazyAllocatorImpl() = default;
-        T* allocate(std::size_t size_)
-        {
-            if (size_ == 0) {
-                return nullptr;
-            }
-            std::lock_guard<std::mutex> guard(mutex_);
-            T* ptr = nullptr;
-            if (storage.find(size_) == storage.end()) {
-                ptr = new T[size_];
-            } else {
-                ptr = storage[size_].back();
-                storage[size_].pop_back();
-            }
-            return ptr;
-        }
-        void deallocate(std::size_t size_, T* &ptr)
-        {
-            if (size_ == 0 || ptr == nullptr) {
-                return;
-            }
-            std::lock_guard<std::mutex> guard(mutex_);
-            storage[size_].push_back(ptr);
-            ptr = nullptr;
-            return;
-        }
-
-        ~LazyAllocatorImpl()
-        {
-            std::lock_guard<std::mutex> guard(mutex_);
-            for (auto& p : storage) {
-                auto& elementVec = p.second;
-                for (auto& e : elementVec) {
-                    delete [] e;
-                }
-                elementVec.clear();
-            }
-            storage.clear();
-            return;
-        }
-    };
-
-    static LazyAllocatorImpl impl;
-    std::map<std::size_t, std::vector<T*> > temp;
 public:
-    LazyAllocator() = default;
+    enum State {
+        STATE_ALLOCATING = 0,
+        STATE_DEALLOCATING,
+        STATE_EMPTING
+    };
+private:
+    constexpr static std::size_t capacity = 256;
+    std::mutex mutex;
+    std::condition_variable condit;
+    std::multimap<std::size_t, T*> container;
+public:
+    LazyAllocator(){}
     ~LazyAllocator()
     {
-        for (auto& p : temp) {
-            for (auto& e : p.second) {
-                impl.deallocate(p.first, e);
-            }
-        }
-        temp.clear();
+        clear();
     }
 
-    T* get(std::size_t size_)
+    T* pop(std::size_t size)
     {
-        T* ptr = impl.allocate(size_);
-        if (ptr != nullptr) {
-            temp[size_].push_back(ptr);
+        std::lock_guard<std::mutex> guard(mutex);
+        T* ptr = nullptr;
+        std::size_t totalSize = size;
+        if (totalSize&0x3ff) {
+            totalSize = ((totalSize >> 10) + 1)<<10;
+        }
+        auto it = container.find(totalSize);
+        if (it == container.end()) {
+            ptr = new T[totalSize];
+        } else {
+            ptr = it->second;
+            container.erase(it);
         }
         return ptr;
     }
 
-};
+    void push(std::size_t size, T* &ptr)
+    {
+        if (ptr == nullptr || size == 0) {
+            return;
+        }
 
-template <typename T>
-typename LazyAllocator<T>::LazyAllocatorImpl LazyAllocator<T>::impl;
+        if (container.size() < capacity) {
+            std::lock_guard<std::mutex> guard(mutex);
+            std::size_t totalSize = size;
+            if (totalSize&0x3ff) {
+                totalSize = ((totalSize >> 10) + 1)<<10;
+            }
+            container.insert(std::pair<std::size_t, T*>(totalSize, ptr));
+        } else {
+            delete [] ptr;
+            ptr = nullptr;
+        }
+        return;
+    }
+
+    void clear()
+    {
+        std::lock_guard<std::mutex> guard(mutex);
+        for (auto it = container.begin(); it != container.end(); it++) {
+            T* ptr = it->second;
+            delete [] ptr;
+            ptr = nullptr;
+        }
+        container.clear();
+        return;
+    }
+};
 
 #endif // LAZYALLOCTOR_HPP

@@ -150,12 +150,14 @@ int main(int argc, char *argv[])
     std::cout<<(0, 9)<<std::endl;
     /* allocator */
     LazyAllocator<char> alloc;
-    char* ptr1 = alloc.get(32);
+    char* ptr1 = alloc.pop(32);
     strcpy(ptr1, "i am invetiable.");
     std::cout<<ptr1<<std::endl;
-    char* ptr2 = alloc.get(16);
+    alloc.push(32, ptr1);
+    char* ptr2 = alloc.pop(16);
     strcpy(ptr2, "hello");
     std::cout<<ptr2<<std::endl;
+    alloc.push(16, ptr2);
     /* size */
     std::size_t size_ = 1025;
     if (size_ & 0x3ff) {
