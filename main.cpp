@@ -4,7 +4,7 @@
 #include <string>
 #include <iostream>
 #include <cstring>
-#include "logger.hpp"
+#include "log.hpp"
 #include "LazyAlloctor.hpp"
 #include "tcppipe.hpp"
 #include "LazyFsm.h"
@@ -142,7 +142,7 @@ int main(int argc, char *argv[])
     Singleton<Subject>::instance()->attach(observer3.get());
     Singleton<Subject>::instance()->notify();
     /* log */
-    LOG(Log::INFO, "hello");
+    LOG_INFO("hello");
     /* string append */
     std::string result;
     result = append(123, "hello", 256, "great");

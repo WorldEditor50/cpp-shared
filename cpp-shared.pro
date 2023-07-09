@@ -29,7 +29,7 @@ HEADERS += \
     allocator.hpp \
     factory.hpp \
     interface.hpp \
-    logger.hpp \
+    log.hpp \
     observer.hpp \
     pipeline.hpp \
     pluginloader.h \
