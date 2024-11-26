@@ -1,14 +1,20 @@
+//#include "../src/tcppipe.hpp"
 #include "../src/singleton.hpp"
 #include "../src/factory.hpp"
 #include "../src/observer.hpp"
 #include "../src/log.hpp"
 #include "../src/LazyAlloctor.hpp"
-#include "../src/tcppipe.hpp"
 #include "../src/LazyFsm.h"
 #include "../src/interface.hpp"
+#include "../src/spinlock.h"
+#include "../src/pluginloader.h"
+#include "../src/pipeline.hpp"
 #include <string>
 #include <iostream>
 #include <cstring>
+
+
+
 class Animal
 {
 public:
@@ -114,14 +120,17 @@ public:
     }
 };
 
-
-
-int main(int argc, char *argv[])
+void test_singleton()
 {
     /* singleton */
     Singleton<Counter>::instance()->tiktok();
     Singleton<Counter>::instance()->tiktok();
     Singleton<Counter>::instance()->tiktok();
+    return;
+}
+
+void test_factory()
+{
     /* abstract factory */
     FactoryRegister<Animal, Bird> birdRegister("bird");
     FactoryRegister<Animal, Fish> fishRegister("fish");
@@ -131,6 +140,11 @@ int main(int argc, char *argv[])
     Factory<Animal>::instance().get("bird")->speak();
     Factory<Animal>::instance().get("fish")->speak();
     Factory<Animal>::instance().get("dragon")->speak();
+    return;
+}
+
+void test_observer()
+{
     /* observer */
     Subject *subject = Singleton<Subject>::instance().get();
     std::shared_ptr<ConcreteObserver> observer1 = std::make_shared<ConcreteObserver>(subject, "ob1");
@@ -140,13 +154,35 @@ int main(int argc, char *argv[])
     Singleton<Subject>::instance()->attach(observer2.get());
     Singleton<Subject>::instance()->attach(observer3.get());
     Singleton<Subject>::instance()->notify();
+    return;
+}
+
+
+void test_log()
+{
     /* log */
     LOG_INFO("hello");
+    return;
+}
+
+void test_appendString()
+{
     /* string append */
     std::string result;
     result = append(123, "hello", 256, "great");
     std::cout<<result<<std::endl;
     std::cout<<(0, 9)<<std::endl;
+    return;
+}
+
+void test_allicator()
+{
+    /* size */
+    std::size_t size_ = 1025;
+    if (size_ & 0x3ff) {
+        size_ = ((size_ >> 10) + 1) << 10;
+    }
+    std::cout<<"size: "<<size_<<std::endl;
     /* allocator */
     LazyAllocator<char> alloc;
     char* ptr1 = alloc.pop(32);
@@ -157,12 +193,12 @@ int main(int argc, char *argv[])
     strcpy(ptr2, "hello");
     std::cout<<ptr2<<std::endl;
     alloc.push(16, ptr2);
-    /* size */
-    std::size_t size_ = 1025;
-    if (size_ & 0x3ff) {
-        size_ = ((size_ >> 10) + 1) << 10;
-    }
-    std::cout<<"size: "<<size_<<std::endl;
+    return;
+}
+
+void test_invoke()
+{
+
     /* invoke */
     Interfaces interfaces;
     interfaces.registerMethod("A-Show", std::function<void(A, const std::string&)>(&A::show));
@@ -171,13 +207,36 @@ int main(int argc, char *argv[])
     interfaces.invoke<void, const std::string&>("show", "listening talker makes me thirsty.");
     interfaces.invoke<int, int, int, int>("add", 1, 2, 3);
     interfaces.invoke<void, const std::string&>("A-Show", "i am batman.");
-    return 0;
-//    /* fsm */
-//    LazyFSM fsm;
-//    /* tcp-pipe */
-//    TcpPipe<UnixSocket> pipe1;
-//    pipe1.push("hello");
-//    TcpPipe<UnixSocket> pipe2;
-//    pipe2.push("i am inevitable.");
+    return;
+}
+
+void test_fsm()
+{
+    /* fsm */
+    LazyFSM fsm;
+}
+
+void test_tcppipe()
+{
+    /* tcp-pipe */
+#ifdef WIN32
+   // TcpPipe pipe1;
+   // pipe1.push("hello");
+   // TcpPipe pipe2;
+   // pipe2.push("i am inevitable.");
+#else
+    TcpPipe pipe1;
+    pipe1.push("hello");
+    TcpPipe pipe2;
+    pipe2.push("i am inevitable.");
+#endif
+    return;
+}
+
+
+int main(int argc, char *argv[])
+{
+
+
     return 0;
 }

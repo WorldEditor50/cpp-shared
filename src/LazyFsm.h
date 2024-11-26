@@ -10,7 +10,7 @@
 #include <memory>
 #include <condition_variable>
 
-class Action
+class iAction
 {
 public:
     virtual int exec() = 0;
@@ -19,43 +19,45 @@ public:
 class Event
 {
 public:
+    using ActionPtr = std::shared_ptr<iAction>;
+public:
     int id;
     int state;
     int nextState;
-    Action *action;
+    ActionPtr action;
 public:
     Event():id(0), state(0), nextState(0), action(nullptr){}
-    Event(int id_,
-          int state_,
-          int nextSate_,
-          Action* action_):
-        id(id_),
-        state(state_),
-        nextState(nextSate_),
-        action(action_){}
+    Event(int id_, int state_, int nextSate_, ActionPtr action_)
+        :id(id_),state(state_),nextState(nextSate_),action(action_){}
+    Event(const Event &r)
+        :id(r.id),state(r.state),nextState(r.nextState),action(r.action){}
     virtual ~Event(){}
 };
 
 class LazyFSM
 {
-private:
+public:
     enum Status {
-        RUNNING = 0,
-        WAIT,
-        SHUTDOWN
+        FSM_NONE = 0,
+        FSM_READY,
+        FSM_WAIT,
+        FSM_TERMINATE
     };
-    std::map<int, Event> events;
+private:
+    int status;
     int currentEventID;
     int currentState;
     std::thread listenThread;
     std::mutex mutex;
     std::condition_variable condit;
-    Status status;
+    std::map<int, Event> events;
 public:
-    void registerEvent(int id,
-                       int state,
-                       int nextSate,
-                       Action* action)
+    LazyFSM():status(FSM_NONE){}
+    ~LazyFSM()
+    {
+        stop();
+    }
+    void registerEvent(int id, int state, int nextSate, Event::ActionPtr action)
     {
         events.insert(std::pair<int, Event>(id, Event(id, state, nextSate, action)));
         return;
@@ -68,8 +70,8 @@ public:
         }
         std::unique_lock<std::mutex> lock(mutex);
         currentEventID = id;
-        if (status != RUNNING) {
-            status = RUNNING;
+        if (status != FSM_READY) {
+            status = FSM_READY;
             condit.notify_all();
         }
         return;
@@ -83,7 +85,7 @@ public:
                 id = event.first;
                 currentState = nextState;
                 if (currentState == 0) {
-                    status = WAIT;
+                    status = FSM_WAIT;
                 }
                 break;
             }
@@ -94,18 +96,19 @@ public:
     void run()
     {
         while (true) {
-            std::unique_lock<std::mutex> lock(mutex);
-            while (status == WAIT) {
-                condit.wait(lock);
-            }
-            if (status == SHUTDOWN) {
+            std::unique_lock<std::mutex> locker(mutex);
+            condit.wait(locker, [this](){
+                return status == FSM_READY;
+            });
+            if (status == FSM_TERMINATE) {
+                status = FSM_NONE;
                 break;
             }
             int ret = events[currentEventID].action->exec();
             if (ret == 0) {
                 currentEventID = transit(events[currentEventID].nextState);
             } else {
-                status = WAIT;
+                status = FSM_WAIT;
             }
         }
         return;
@@ -113,24 +116,26 @@ public:
 
     void start(int state)
     {
+        if (status != FSM_NONE) {
+            return;
+        }
         currentState = state;
-        status = RUNNING;
+        status = FSM_READY;
         listenThread = std::thread(&LazyFSM::run, this);
         return;
     }
     void stop()
     {
-        if (status != SHUTDOWN) {
+        if (status == FSM_NONE) {
+            return;
+        }
+        while (status != FSM_NONE) {
             std::unique_lock<std::mutex> lock(mutex);
-            status = SHUTDOWN;
+            status = FSM_TERMINATE;
             listenThread.join();
         }
         return;
     }
-    LazyFSM(){}
-    ~LazyFSM()
-    {
-        stop();
-    }
+
 };
 #endif // LAZYFSM_H

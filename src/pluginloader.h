@@ -1,12 +1,77 @@
 #ifndef PLUGIN_LOADER_H
 #define PLUGIN_LOADER_H
+#ifdef WIN32
+#include <Windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <string>
 #include <iostream>
 
+#ifdef WIN32
+
 class PluginLoader
 {
-protected:
+private:
+    HMODULE hModule;
+public:
+    PluginLoader():hModule(nullptr){}
+    ~PluginLoader()
+    {
+        if (!hModule) {
+            close();
+        }
+    }
+    bool open(const std::string &fileName)
+    {
+        if (fileName.empty()) {
+            std::cout<<"empty filename."<<std::endl;
+            return false;
+        }
+        if (hModule != nullptr) {
+            std::cout<<"library has been opened."<<std::endl;
+            return true;
+        }
+        hModule = LoadLibraryA(fileName.c_str());
+        if (!hModule) {
+            std::cout<<"failed to open library."<<std::endl;
+            return false;
+        }
+        return true;
+    }
+
+    void close()
+    {
+        int ret = FreeLibrary(hModule);
+        if (ret != 0) {
+            std::cout<<"failed to close library."<<std::endl;
+            return;
+        }
+        hModule = nullptr;
+        return;
+    }
+
+    template<typename TFunc>
+    TFunc parse(const std::string &funcName)
+    {
+        TFunc func;
+        if (funcName.empty()) {
+            return func;
+        }
+        func = TFunc(GetProcAddress(hModule, funcName.c_str()));
+        if (!func) {
+            std::cout<<"failed to load function."<<std::endl;
+            return func;
+        }
+        return func;
+    }
+};
+
+
+#else
+class PluginLoader
+{
+private:
     void* handle;
 public:
     PluginLoader():handle(nullptr){}
@@ -58,4 +123,5 @@ public:
     }
 };
 
+#endif
 #endif // PLUGIN_LOADER_H

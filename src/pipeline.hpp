@@ -53,11 +53,11 @@ public:
     }
     void start()
     {
+        if (state != STATE_NONE) {
+            return;
+        }
         {
             std::unique_lock<std::mutex> locker(mutex);
-            if (state != STATE_NONE) {
-                return;
-            }
             state = STATE_IDEL;
             condit.notify_all();
         }
@@ -69,7 +69,10 @@ public:
 
     void stop()
     {
-        {
+        if (state == STATE_NONE) {
+            return;
+        }
+        while (state != STATE_NONE) {
             std::unique_lock<std::mutex> locker(mutex);
             state = STATE_TERMINATE;
             condit.notify_all();
@@ -77,7 +80,6 @@ public:
         for (std::size_t i = 0; i < threads.size(); i++) {
             threads[i].join();
         }
-        state = STATE_NONE;
         return;
     }
 protected:
@@ -91,6 +93,7 @@ protected:
                     return state == STATE_READY || state == STATE_TERMINATE;
                 });
                 if (state == STATE_TERMINATE) {
+                    state = STATE_NONE;
                     break;
                 }
                 value = std::move(dataQueue.front());

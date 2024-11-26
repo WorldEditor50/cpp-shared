@@ -1,15 +1,11 @@
 #ifndef TCPPIPE_HPP
 #define TCPPIPE_HPP
-#include <string>
-#include <vector>
-#include <map>
-#include <thread>
-#include <atomic>
-#include <memory>
-#include <iostream>
-#include <regex>
 #ifdef WIN32
-#include <windows.h>
+#include <Windows.h>
+//#include <WinSock2.h>
+#include <Ws2tcpip.h>
+#include <stdio.h>
+#pragma comment(lib, "Ws2_32.lib")
 #else
 #include <unistd.h>
 #include <sys/socket.h>
@@ -21,36 +17,104 @@
 #include <netdb.h>
 #endif
 
-enum Error {
-    OK = 0,
-    SOCKET_ERR,
-    BIND_ERR,
-    CONNECT_ERR,
+#include <string>
+#include <vector>
+#include <map>
+#include <thread>
+#include <atomic>
+#include <memory>
+#include <iostream>
+#include <regex>
 
+
+enum Error {
+    TCPPIPE_OK = 0,
+    TCPPIPE_SOCKET_ERR,
+    TCPPIPE_BIND_ERR,
+    TCPPIPE_CONNECT_ERR,
 };
 
-#ifdef __linux__
-class UnixSocket //: public Socket
+
+
+class Protocol
 {
 public:
-    using SocketPtr = std::shared_ptr<UnixSocket>;
-    constexpr static int maxBufferLen = 65532;
-    int fd;
+    static std::map<std::string, std::string> parse(const std::string &message)
+    {
+        std::map<std::string, std::string> data;
+        std::regex re(",");
+        std::vector<std::string> dataVec(std::sregex_token_iterator(message.begin(),
+                                                                    message.end(),
+                                                                    re,
+                                                                    -1),
+                                         std::sregex_token_iterator());
+        int start = dataVec[0].find("service:");
+        data["service"] = dataVec[0].substr(start);
+        start = dataVec[1].find("from:");
+        data["from"] = dataVec[1].substr(start);
+        start = dataVec[2].find("to:");
+        data["to"] = dataVec[2].substr(start);
+        start = dataVec[2].find("content:");
+        data["content"] = dataVec[2].substr(start);
+        return data;
+    }
+    template<typename ...T>
+    static std::string append(const T& ...t)
+    {
+        std::string message;
+        return message;
+    }
+    static std::string build(const std::vector<std::string> &data)
+    {
+        std::string message;
+        message += "service:" + data[0] + ",";
+        message += "from:" + data[1] + ",";
+        message += "to:" + data[2] + ",";
+        message += "content:" + data[3];
+        return message;
+    }
+};
+
+class iSocket
+{
+public:
+#ifdef WIN32
+    using FD = SOCKET;
+#else
+    using FD = int;
+#endif
+    constexpr static int max_buffer_len = 1024;
+public:
+    FD fd;
     int port_;
     std::string host_;
 public:
-    UnixSocket():fd(-1), port_(8080), host_("127.0.0.1"){}
-    UnixSocket(int newFD, const std::string &host, const std::string &port)
+    iSocket():fd(-1),port_(8080), host_("127.0.0.1"){}
+    iSocket(FD newFD, const std::string &host, const std::string &port)
         :fd(newFD), port_(std::atoi(port.c_str())), host_(host) {}
-    UnixSocket(const UnixSocket &sock):fd(sock.fd), port_(sock.port_), host_(sock.host_){}
-    ~UnixSocket(){}
-    inline int getFD() const {return fd;}
+    virtual ~iSocket(){}
+    inline FD getFD() const {return fd;}
     inline int getPort() const {return port_;}
     inline std::string getHost() const {return host_;}
     inline std::string getAddress() const
     {
         return host_ + ":" + std::to_string(port_);
     }
+
+};
+#ifdef __linux__
+class Socket : public iSocket
+{
+public:
+    using Ptr = std::shared_ptr<Socket>;
+
+public:
+    Socket(){}
+    Socket(FD newFD, const std::string &host, const std::string &port)
+        :fd(newFD), port_(std::atoi(port.c_str())), host_(host) {}
+    Socket(const Socket &sock):fd(sock.fd), port_(sock.port_), host_(sock.host_){}
+    ~Socket(){}
+
     int tcp()
     {
         fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -121,14 +185,14 @@ public:
     }
     bool sendMessage(const std::string &content)
     {
-        if (content.size() < maxBufferLen) {
+        if (content.size() < max_buffer_len) {
             return send(fd, content.c_str(), content.size(), 0) == content.size();
         }
         const char *data = content.data();
         std::string::size_type total = content.size();
         std::string::size_type pos = 0;
         while (pos < total) {
-            ssize_t len = send(fd, data + pos, maxBufferLen, 0);
+            int len = send(fd, data + pos, max_buffer_len, 0);
             if (len < 0) {
                 break;
             }
@@ -139,15 +203,15 @@ public:
 
     std::string recvMessage()
     {
-        char buffer[maxBufferLen] = {0};
-        ssize_t len = recv(fd, buffer, maxBufferLen, 0);
+        char buffer[max_buffer_len] = {0};
+        ssize_t len = recv(fd, buffer, max_buffer_len, 0);
         if (len < 0) {
             return std::string();
         }
         return std::string(buffer, len);
     }
 
-    std::shared_ptr<UnixSocket> accepting()
+    std::shared_ptr<Socket> accepting()
     {
         sockaddr_in addr;
         socklen_t len = sizeof(sockaddr_in);
@@ -167,7 +231,7 @@ public:
         if (ret != 0) {
             return nullptr;
         }
-        return std::make_shared<UnixSocket>(newFD, acHost, acPort);
+        return std::make_shared<Socket>(newFD, acHost, acPort);
     }
     void destroy()
     {
@@ -176,58 +240,194 @@ public:
     }
 };
 #endif
+#ifdef WIN32
+class Socket : public iSocket
+{
+public:
+    using Ptr = std::shared_ptr<Socket>;
+    class WSA
+    {
+    public:
+        WSADATA data;
+    public:
+        WSA()
+        {
+             int ret = WSAStartup(MAKEWORD(2, 2), &data);
+             if (ret != 0) {
+                 printf("WSAStartup failed: %d\n", ret);
+             }
+        }
+        ~WSA()
+        {
+            WSACleanup();
+        }
+    };
+    static WSA wsa;
+public:
+    Socket(){}
+    Socket(int newFD, const std::string &host, const std::string &port)
+        :iSocket(newFD, host, port) {}
+    Socket(const Socket &sock){}
+    ~Socket(){}
+    int tcp()
+    {
+        fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (fd < 0) {
+            throw std::runtime_error("failed to create tcp socket");
+            return fd;
+        }
+        return TCPPIPE_OK;
+    }
+    int udp()
+    {
+        fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (fd < 0) {
+            throw std::runtime_error("failed to create udp socket");
+            return fd;
+        }
+        return TCPPIPE_OK;
+    }
 
-class WinSocket
-{
-public:
-    using SocketPtr = std::shared_ptr<WinSocket>;
+    int icmp()
+    {
+        fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+        if (fd < 0) {
+            throw std::runtime_error("failed to create icmp socket");
+            return fd;
+        }
+        return TCPPIPE_OK;
+    }
+
+    int bindTo(const std::string &host, int port)
+    {
+        sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        addr.sin_addr.S_un.S_addr = INADDR_ANY;
+        if(::bind(fd, (LPSOCKADDR)&addr, sizeof(addr)) == SOCKET_ERROR) {
+            printf("bind error !");
+            return -1;
+        }
+        return 0;
+    }
+
+    int setIOReused(int opt)
+    {
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(int));
+    }
+
+    int setNonBlock(bool on)
+    {
+        //unsigned long flag = 1;
+        //if (ioctl(fd, FIONBIO, &flag)!=0) {
+        //    closesocket(fd);
+        //    return -1;
+        //}
+        return 0;
+    }
+
+    int connectTo(const std::string &host, int port)
+    {
+        sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        addr.sin_addr.S_un.S_addr = inet_addr(host.c_str());
+        if (::connect(fd, (sockaddr *)&addr, sizeof(addr)) == SOCKET_ERROR) {
+            printf("connect error !");
+            return -1;
+        }
+        return 0;
+    }
+
+    int listening(int maxPortCount)
+    {
+        int ret = ::listen(fd, maxPortCount);
+        if (ret == SOCKET_ERROR) {
+            printf("Listen failed with error: %ld\n", WSAGetLastError());
+            return -1;
+        }
+        return 0;
+    }
+
+    bool sendMessage(const std::string &content)
+    {
+        if (content.size() < max_buffer_len) {
+            return send(fd, content.c_str(), content.size(), 0) == content.size();
+        }
+        const char *data = content.data();
+        std::string::size_type total = content.size();
+        std::string::size_type pos = 0;
+        while (pos < total) {
+            int len = send(fd, data + pos, max_buffer_len, 0);
+            if (len < 0) {
+                break;
+            }
+            pos += len;
+        }
+        return pos == total;
+    }
+
+    std::string recvMessage()
+    {
+        char buffer[max_buffer_len] = {0};
+        int len = recv(fd, buffer, max_buffer_len, 0);
+        if (len < 0) {
+            return std::string();
+        }
+        return std::string(buffer, len);
+    }
+
+    Ptr accepting()
+    {
+        sockaddr_in addr;
+        int len = sizeof(sockaddr_in);
+        int newFD = accept(fd, (sockaddr*)&addr, &len);
+        if (newFD < 0) {
+            return nullptr;
+        }
+        char acHost[NI_MAXHOST] = {0};
+        char acPort[NI_MAXSERV] = {0};
+        int ret = getnameinfo((sockaddr*)&addr,
+                              len,
+                              acHost,
+                              NI_MAXHOST,
+                              acPort,
+                              NI_MAXSERV,
+                              NI_NUMERICHOST | NI_NUMERICSERV);
+        if (ret != 0) {
+            return nullptr;
+        }
+        return std::make_shared<Socket>(newFD, acHost, acPort);
+    }
+
+    int shutdown()
+    {
+        int ret = ::shutdown(fd, SD_SEND);
+        if (ret == SOCKET_ERROR) {
+            printf("shutdown failed: %d\n", WSAGetLastError());
+            return -1;
+        }
+        return 0;
+    }
+
+    void destroy()
+    {
+        if (fd != INVALID_SOCKET) {
+            closesocket(fd);
+            fd = -1;
+        }
+        return;
+    }
 };
-class Protocol
-{
-public:
-    static std::map<std::string, std::string> parse(const std::string &message)
-    {
-        std::map<std::string, std::string> data;
-        std::regex re(",");
-        std::vector<std::string> dataVec(std::sregex_token_iterator(message.begin(),
-                                                                    message.end(),
-                                                                    re,
-                                                                    -1),
-                                         std::sregex_token_iterator());
-        int start = dataVec[0].find("service:");
-        data["service"] = dataVec[0].substr(start);
-        start = dataVec[1].find("from:");
-        data["from"] = dataVec[1].substr(start);
-        start = dataVec[2].find("to:");
-        data["to"] = dataVec[2].substr(start);
-        start = dataVec[2].find("content:");
-        data["content"] = dataVec[2].substr(start);
-        return data;
-    }
-    template<typename ...T>
-    static std::string append(const T& ...t)
-    {
-        std::string message;
-        return message;
-    }
-    static std::string build(const std::vector<std::string> &data)
-    {
-        std::string message;
-        message += "service:" + data[0] + ",";
-        message += "from:" + data[1] + ",";
-        message += "to:" + data[2] + ",";
-        message += "content:" + data[3];
-        return message;
-    }
-};
+
+#endif
 
 #define MAX_EVENT_NUM 2048
-template<typename TSocket>
 class AbstractServer
 {
 public:
-    using SocketPtr = typename TSocket::SocketPtr;
-    TSocket socket;
+    using SocketPtr = Socket::Ptr;
+    Socket socket;
     std::atomic_bool isRunning;
     std::map<std::string, SocketPtr> socketMap;
 public:
@@ -269,12 +469,11 @@ public:
     }
 };
 
-template<typename TSocket>
-class Select : public AbstractServer<TSocket>
+class Select : public AbstractServer
 {
 public:
-    using SocketPtr = typename TSocket::SocketPtr;
-    using Server = AbstractServer<TSocket>;
+    using SocketPtr = Socket::Ptr;
+    using Server = AbstractServer;
     std::thread recvThread;
 public:
     Select(){}
@@ -351,12 +550,11 @@ public:
     }
 };
 #ifdef __linux__
-template<typename TSocket>
-class Epoll : public AbstractServer<TSocket>
+class Epoll : public AbstractServer
 {
 public:
-    using SocketPtr = typename TSocket::SocketPtr;
-    using Server = AbstractServer<TSocket>;
+    using SocketPtr = Socket::Ptr;
+    using Server = AbstractServer;
     int epfd;
     std::map<int, SocketPtr> fd2Socket;
     epoll_event eventList[MAX_EVENT_NUM];
@@ -450,8 +648,8 @@ public:
 };
 #endif
 
-template <typename TSocket, template<typename> class IO, typename TProtocol = Protocol>
-class TcpServer : public IO<TSocket>
+template <class IO, typename TProtocol = Protocol>
+class TcpServer : public IO
 {
 public:
     using StringVec = std::vector<std::string>;
@@ -464,25 +662,26 @@ public:
     }
     TcpServer& start(const std::string &host, int port)
     {
-        IO<TSocket>::Server::start(host, port);
+        IO::Server::start(host, port);
         return *this;
     }
     void run()
     {
-        if (IO<TSocket>::Server::isRunning.load()) {
+        if (IO::Server::isRunning.load()) {
             return;
         }
-        ioThread = std::thread(&IO<TSocket>::run, this);
+        ioThread = std::thread(&IO::run, this);
+        return;
     }
 };
 
-template<typename TSocket, typename TProtocol = Protocol>
+template<typename TProtocol = Protocol>
 class TcpClient
 {
 public:
     using StringVec = std::vector<std::string>;
 public:
-    TSocket socket;
+    Socket socket;
     std::atomic_bool isRunning;
     std::thread recvThread;
     std::map<std::string, StringVec> mailBox;
@@ -541,36 +740,34 @@ public:
     }
 };
 
-template <typename TSocket>
-class TcpPipe : protected TcpClient<TSocket>
+class TcpPipe : protected TcpClient<Protocol>
 {
 public:
     static std::string host;
     static int port;
 #ifdef __linux__
-    static TcpServer<TSocket, Epoll> server;
+    static TcpServer<Epoll> server;
 #endif
 #ifdef WIN32
-    static TcpServer<TSocket, Select> server;
+    static TcpServer<Select> server;
 #endif
     TcpPipe()
     {
         server.start(host, port).run();
-        TcpClient<TSocket>::connectHost(host, port);
+        TcpClient::connectHost(host, port);
     }
-    void push(const std::string &message) {TcpClient<TSocket>::send(message);}
+    void push(const std::string &message) {TcpClient::send(message);}
 };
-template<typename TSocket>
-std::string TcpPipe<TSocket>::host = "127.0.0.1";
-template<typename TSocket>
-int TcpPipe<TSocket>::port = 8081;
+
+std::string TcpPipe::host = "127.0.0.1";
+int TcpPipe::port = 8081;
 #ifdef __linux__
-template<typename TSocket>
-TcpServer<TSocket, Epoll> TcpPipe<TSocket>::server;
+TcpServer<Epoll> TcpPipe::server;
 #endif
 
 #ifdef WIN32
-template<typename TSocket>
-TcpServer<TSocket, Select> TcpPipe<TSocket>::server;
+TcpServer<Select> TcpPipe::server;
 #endif
+
+
 #endif // TCPPIPE_HPP
