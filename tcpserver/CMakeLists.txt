@@ -13,8 +13,8 @@ file(GLOB SERVER_FILES
     ${SRC_DIR}/socket.hpp
     ${SRC_DIR}/tcpserver.h
     ${SRC_DIR}/tcpserver.cpp
-    ${SRC_DIR}/tcphandler.h
-    ${SRC_DIR}/tcphandler.cpp
+    ${SRC_DIR}/serverhandler.h
+    ${SRC_DIR}/serverhandler.cpp
     ${SRC_DIR}/serverd.cpp
 )
 add_executable(serverd ${SERVER_FILES})
@@ -24,8 +24,8 @@ file(GLOB CLIENT_FILES
     ${SRC_DIR}/socket.hpp
     ${SRC_DIR}/tcpclient.h
     ${SRC_DIR}/tcpclient.cpp
-    ${SRC_DIR}/tcphandler.h
-    ${SRC_DIR}/tcphandler.cpp
+    ${SRC_DIR}/clienthandler.h
+    ${SRC_DIR}/clienthandler.cpp
     ${SRC_DIR}/clientd.cpp
 )
 add_executable(clientd ${CLIENT_FILES})
